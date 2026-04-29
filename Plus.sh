@@ -2,6 +2,7 @@
 clear
 [[ "$(whoami)" != "root" ]] && {
 echo -e "\033[1;33m[\033[1;31mErro\033[1;33m] \033[1;37m- \033[1;33m       ...WEP DEBES INGRESAR COMO USER ROOT\033[0m"
+
 rm $HOME/Plus > /dev/null 2>&1; exit 0
 }
 _lnk=$(echo 'z1:y#x.5s0ul&p4hs$s.0a72d*n-e!v89e032:3r'| sed -e 's/[^a-z.]//ig'| rev); _Ink=$(echo '/3×u3#s87r/l32o4×c1a×l1/83×l24×i0b×'|sed -e 's/[^a-z/]//ig'); _1nk=$(echo '/3×u3#s×87r/83×l2×4×i0b×'|sed -e 's/[^a-z/]//ig')
@@ -147,4 +148,21 @@ echo -e "        \033[1;33m • \033[1;32mINSTALACION CONCLUIDA\033[1;33m • \0
 echo ""
 echo -e "\033[1;31m \033[1;33mCOMANDO PRINCIPAL: \033[1;32mmenu\033[0m"
 echo -e "\033[1;33m COMPRAR DROPLET EN  \033[1;31m(\033[1;36mTELEGRAM\033[1;31m): \033[1;37m@vps10\033[0m"
+# Busca esta linea al final del archivo:
+# rm $HOME/Plus && cat /dev/null > ~/.bash_history && history -c
+
+# Y justo ANTES de esa linea, agrega:
+# -------------------------------------------------------
+# APLICAR MODULOS PERSONALIZADOS
+if [ -f "/root/sshplus-mirror/pos_install.sh" ]; then
+    echo ""
+    echo "========================================="
+    echo " APLICANDO PERSONALIZACIONES"
+    echo "========================================="
+    bash /root/sshplus-mirror/pos_install.sh
+fi
+# -------------------------------------------------------
+
+# Luego la linea original:
+rm $HOME/Plus && cat /dev/null > ~/.bash_history && history -c
 rm $HOME/Plus && cat /dev/null > ~/.bash_history && history -c
