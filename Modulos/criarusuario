@@ -1,0 +1,187 @@
+#!/bin/bash
+# SISTEMA DE GESTION DE USUARIOS CON IDS DINAMICOS
+# Version limpia - Sin colores - Para integracion con bot
+
+DB_USER="/root/usuarios.db"
+DB_IDS="/etc/SSHPlus/ids.db"
+SENHA_DIR="/etc/SSHPlus/senha"
+RELACAO="/etc/SSHPlus/relacao.txt"
+
+# Crear archivos si no existen
+mkdir -p "$SENHA_DIR"
+touch "$DB_USER"
+touch "$DB_IDS"
+touch "$RELACAO"
+
+# Funcion: Generar nuevo ID
+gerar_id() {
+    if [[ ! -s "$DB_IDS" ]]; then
+        echo "1" > "$DB_IDS"
+        echo "1"
+    else
+        last_id=$(sort -n "$DB_IDS" | tail -1)
+        next_id=$((last_id + 1))
+        echo "$next_id"
+    fi
+}
+
+# Funcion: Renumerar IDs despues de borrar
+renumerar_ids() {
+    local temp_ids="/tmp/ids_temp_$$"
+    local temp_rel="/tmp/rel_temp_$$"
+    local new_id=1
+    
+    sort -n "$DB_IDS" > "$temp_ids"
+    
+    while read old_id; do
+        user=$(grep "|$old_id|" "$RELACAO" 2>/dev/null | cut -d'|' -f1)
+        if [[ -n "$user" ]]; then
+            echo "$new_id" >> "$temp_ids"
+            sed -i "s/|$old_id|/|$new_id|/" "$RELACAO" 2>/dev/null
+            new_id=$((new_id + 1))
+        fi
+    done < "$temp_ids"
+    
+    mv "$temp_ids" "$DB_IDS" 2>/dev/null
+    rm -f "$temp_rel"
+}
+
+# Funcion: Listar usuarios
+listar_usuarios() {
+    if [[ ! -s "$DB_USER" ]]; then
+        echo "No hay usuarios registrados"
+        return 0
+    fi
+    
+    echo "LISTA DE USUARIOS:"
+    echo "ID | USUARIO | LIMITE | EXPIRA"
+    echo "----------------------------------------"
+    
+    while IFS=' ' read -r user limite; do
+        id=$(grep "$user|" "$RELACAO" 2>/dev/null | cut -d'|' -f2)
+        if [[ -z "$id" ]]; then
+            id=$(gerar_id)
+            echo "$user|$id" >> "$RELACAO"
+            echo "$id" >> "$DB_IDS"
+        fi
+        
+        expira=$(chage -l "$user" 2>/dev/null | grep "Account expires" | cut -d: -f2)
+        if [[ "$expira" == *"never"* ]]; then
+            expira="NUNCA"
+        fi
+        
+        echo "$id | $user | $limite | $expira"
+    done < "$DB_USER"
+    
+    echo "----------------------------------------"
+}
+
+# Funcion: Crear usuario
+criar_usuario() {
+    echo "CREAR NUEVO USUARIO"
+    echo "==================="
+    
+    # Nombre
+    while true; do
+        read -p "Nombre (min 4, max 32, solo letras/numeros): " username
+        [[ -z "$username" ]] && echo "ERROR: Nombre vacio" && continue
+        [[ ${#username} -lt 4 ]] && echo "ERROR: Minimo 4 caracteres" && continue
+        [[ ${#username} -gt 32 ]] && echo "ERROR: Maximo 32 caracteres" && continue
+        [[ ! "$username" =~ ^[a-zA-Z0-9]+$ ]] && echo "ERROR: Solo letras y numeros" && continue
+        grep -q "^$username " "$DB_USER" && echo "ERROR: Usuario ya existe" && continue
+        break
+    done
+    
+    # Password
+    while true; do
+        read -p "Password (min 4): " password
+        [[ -z "$password" ]] && echo "ERROR: Password vacio" && continue
+        [[ ${#password} -lt 4 ]] && echo "ERROR: Minimo 4 caracteres" && continue
+        break
+    done
+    
+    # Dias
+    while true; do
+        read -p "Dias para expirar (1-365): " dias
+        [[ -z "$dias" ]] && echo "ERROR: Dias vacio" && continue
+        [[ ! "$dias" =~ ^[0-9]+$ ]] && echo "ERROR: Solo numeros" && continue
+        [[ $dias -lt 1 ]] && echo "ERROR: Minimo 1 dia" && continue
+        [[ $dias -gt 365 ]] && echo "ERROR: Maximo 365 dias" && continue
+        break
+    done
+    
+    # Limite
+    while true; do
+        read -p "Limite de conexiones (1-10): " sshlimiter
+        [[ -z "$sshlimiter" ]] && echo "ERROR: Limite vacio" && continue
+        [[ ! "$sshlimiter" =~ ^[0-9]+$ ]] && echo "ERROR: Solo numeros" && continue
+        [[ $sshlimiter -lt 1 ]] && echo "ERROR: Minimo 1 conexion" && continue
+        [[ $sshlimiter -gt 10 ]] && echo "ERROR: Maximo 10 conexiones" && continue
+        break
+    done
+    
+    # Calcular fecha
+    final=$(date "+%Y-%m-%d" -d "+$dias days")
+    gui=$(date "+%d/%m/%Y" -d "+$dias days")
+    
+    # Crear usuario en el sistema
+    pass=$(perl -e 'print crypt($ARGV[0], "password")' "$password")
+    useradd -e "$final" -M -s /bin/false -p "$pass" "$username" >/dev/null 2>&1
+    
+    # Guardar datos
+    echo "$password" > "$SENHA_DIR/$username"
+    echo "$username $sshlimiter" >> "$DB_USER"
+    
+    # Generar ID
+    id=$(gerar_id)
+    echo "$username|$id" >> "$RELACAO"
+    echo "$id" >> "$DB_IDS"
+    
+    echo ""
+    echo "USUARIO CREADO"
+    echo "ID: $id"
+    echo "Usuario: $username"
+    echo "Password: $password"
+    echo "Limite: $sshlimiter"
+    echo "Expira: $gui"
+}
+
+# Funcion: Borrar usuario por ID
+borrar_usuario() {
+    listar_usuarios
+    echo ""
+    read -p "ID a borrar: " id
+    
+    user=$(grep "|$id|" "$RELACAO" 2>/dev/null | cut -d'|' -f1)
+    
+    if [[ -z "$user" ]]; then
+        echo "ERROR: ID $id no encontrado"
+        return 1
+    fi
+    
+    echo "Usuario: $user (ID: $id)"
+    read -p "Confirmar borrado (s/n): " confirm
+    
+    if [[ "$confirm" =~ ^[sS]$ ]]; then
+        userdel -f "$user" 2>/dev/null
+        sed -i "/^$user /d" "$DB_USER"
+        sed -i "/$user|$id/d" "$RELACAO"
+        sed -i "/^$id$/d" "$DB_IDS"
+        rm -f "$SENHA_DIR/$user"
+        renumerar_ids
+        echo "Usuario $user borrado"
+    else
+        echo "Cancelado"
+    fi
+}
+
+# Menu
+case "$1" in
+    add|criar)      criar_usuario ;;
+    del|borrar)     borrar_usuario ;;
+    list|ls)        listar_usuarios ;;
+    *)              
+        echo "COMANDOS: criar, borrar, list"
+        echo "Ejemplo: criarusuario criar"
+        ;;
+esac
